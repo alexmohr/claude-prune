@@ -1,0 +1,11 @@
+#!/bin/zsh
+# claude-prune wrapper. Ensures node >= 22 and forwards all args to claude-prune.mjs.
+set -e
+DIR="$(cd "$(dirname "$0")" && pwd)"
+NODE="${PRUNE_NODE:-node}"
+V=$("$NODE" -e 'console.log(process.versions.node.split(".")[0])')
+if [ "$V" -lt 22 ]; then
+  echo "claude-prune needs Node >= 22 (found $V). Install: brew install node  (or set PRUNE_NODE=/path/to/node)" >&2
+  exit 1
+fi
+exec "$NODE" "$DIR/claude-prune.mjs" "$@"

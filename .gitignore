@@ -1,0 +1,3 @@
+# run reports contain YOUR account's chat titles and ids — never commit these
+logs/
+*.log
