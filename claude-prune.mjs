@@ -124,7 +124,23 @@ async function loginCheck(sid) {
 }
 
 async function listChats(sid, org) {
-  return evaluate(sid, `(async()=>{${hdr(org)}const r=await fetch('${B}/api/organizations/${org}/chat_conversations?view=sidebar&tree=false',{headers:H});if(r.status!==200)return JSON.stringify({error:'http '+r.status});const j=await r.json();const arr=Array.isArray(j)?j:(j.conversations||j.chat_conversations||[]);return JSON.stringify({total:arr.length,items:arr.map(c=>({uuid:c.uuid,name:c.name||'',project:c.project_uuid||null}))});})()`);
+  const seen = new Map();
+  // source 1: sidebar listing (the classic endpoint)
+  const base = await evaluate(sid, `(async()=>{${hdr(org)}const r=await fetch('${B}/api/organizations/${org}/chat_conversations?view=sidebar&tree=false',{headers:H});if(r.status!==200)return JSON.stringify({error:'http '+r.status});const j=await r.json();const arr=Array.isArray(j)?j:(j.conversations||j.chat_conversations||[]);return JSON.stringify(arr.map(c=>({uuid:c.uuid,name:c.name||'',project:c.project_uuid||null,archived:!!c.is_archived,starred:!!c.is_starred,src:'sidebar'})));})()`);
+  const merge = arr => { for (const c of (arr || [])) if (c && c.uuid && !seen.has(c.uuid)) seen.set(c.uuid, c); };
+  if (base.error) return { error: base.error };
+  merge(base);
+  // sources 2+3: v2 endpoint variants for ARCHIVED and PINNED/STARRED chats —
+  // these may not appear in the sidebar listing (learned from UI count mismatch).
+  for (const variant of ['archived=true', 'starred=true&archived=false']) {
+    for (let offset = 0; offset < 1000; offset += 100) {
+      const v = await evaluate(sid, `(async()=>{${hdr(org)}const r=await fetch('${B}/api/organizations/${org}/chat_conversations_v2?limit=100&offset=${offset}&consistency=strong&${variant}',{headers:H});if(r.status!==200)return JSON.stringify({error:'http '+r.status});const j=await r.json();const arr=j.conversations||j.chat_conversations||(Array.isArray(j)?j:[]);return JSON.stringify(arr.map(c=>({uuid:c.uuid,name:c.name||'',project:c.project_uuid||null,archived:!!c.is_archived,starred:!!c.is_starred,src:'v2:${variant}'})));})()`);
+      if (v.error) break; // endpoint variant unsupported — fine, sidebar may already cover it
+      merge(v);
+      if (!v.length) break;
+    }
+  }
+  return { total: seen.size, items: [...seen.values()] };
 }
 const deleteChat = (sid, org, uuid) => evaluate(sid, `(async()=>{${hdr(org)}try{const r=await fetch('${B}/api/organizations/${org}/chat_conversations/${uuid}',{method:'DELETE',headers:H});return JSON.stringify({status:r.status});}catch(e){return JSON.stringify({error:String(e)});}})()`);
 
@@ -164,7 +180,8 @@ async function main() {
       const keepP = chats.items.filter(c => c.project);
       const keepN = chats.items.filter(c => !c.project && KEEP.some(k => c.name === k));
       const targets = chats.items.filter(c => !c.project && !KEEP.some(k => c.name === k));
-      log(`CHATS: total=${chats.total} keep(project)=${keepP.length} keep(--keep)=${keepN.length} target=${targets.length}`);
+      const flags = c => (c.starred ? ' pinned' : '') + (c.archived ? ' archived' : '');
+      log(`CHATS: total=${chats.total} keep(project)=${keepP.length} keep(--keep)=${keepN.length} target=${targets.length} (of which pinned=${targets.filter(c => c.starred).length} archived=${targets.filter(c => c.archived).length})`);
       for (const c of keepP) log('  KEEP(project): ' + c.name);
       if (YES) {
         let ok = 0, fail = 0;

@@ -22,7 +22,9 @@ no official Anthropic API for consumer chat data.
    Never add a mode that deletes without it. Never default `--yes` in cron examples
    without a warning.
 2. **Project chats are untouchable.** Chat delete targets MUST exclude any chat with
-   `project_uuid` set. Do not "simplify" this filter.
+   `project_uuid` set. Do not "simplify" this filter. Pinned/starred and archived
+   chats ARE valid delete targets (pinning is not protection) — keep enumerating all
+   three chat sources.
 3. **Only archived code sessions.** Delete targets MUST be `status === 'archived'`
    from a fresh enumeration. Active sessions may be running user work.
 4. **Session-bound triggers cascade-delete with sessions.** Do NOT bulk-delete triggers
@@ -43,8 +45,13 @@ no official Anthropic API for consumer chat data.
 ## API notes (learned empirically, keep current)
 
 - Org discovery: `GET /api/organizations` → `[0].uuid`.
-- Chat list: `GET /api/organizations/{org}/chat_conversations?view=sidebar&tree=false`
-  → flat array, no cursor. Fields: `uuid`, `name`, `project_uuid` (NOT `project_id`).
+- Chat list: enumerated from THREE sources and merged by uuid (learned empirically —
+  pinned/starred and archived chats do NOT reliably appear in the sidebar listing):
+  1. `GET /api/organizations/{org}/chat_conversations?view=sidebar&tree=false` → flat array.
+  2. `GET /api/organizations/{org}/chat_conversations_v2?limit=100&offset=N&consistency=strong&archived=true`
+  3. `GET /api/organizations/{org}/chat_conversations_v2?limit=100&offset=N&consistency=strong&starred=true&archived=false`
+  v2 variants may 404 on some account states — ignore variant errors, keep the merge lenient.
+  Fields: `uuid`, `name`, `project_uuid` (NOT `project_id`), `is_starred` (pinned), `is_archived`.
 - Chat delete: `DELETE /api/organizations/{org}/chat_conversations/{uuid}`.
 - Code sessions: `GET /v1/code/sessions?statuses=archived&limit=100`, cursor-paginated
   via `next_cursor`; body shape `{data, next_cursor}`. Delete: `DELETE /v1/code/sessions/{id}`

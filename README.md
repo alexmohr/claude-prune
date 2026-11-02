@@ -15,9 +15,13 @@ backend API through a dedicated, headless Chrome profile. No npm dependencies, N
 
 | Target | Rule |
 |---|---|
-| Web chats | every chat **not attached to a project** is deleted (project chats are never in scope; add `--keep="name"` for exceptions) |
+| Web chats | every chat **not attached to a project** is deleted — regardless of whether it is normal, **archived, or pinned/starred** (project chats are never in scope; add `--keep="name"` for exceptions). Pinned chats live in a separate UI/API grouping, so they are enumerated from three sources (sidebar, archived, starred) and merged |
 | Claude Code sessions (`/code`) | every **archived** session is deleted; active sessions are never touched |
 | Routines/triggers | session-bound one-shots cascade-delete with their sessions automatically; optionally pass `--ids=<ids.json>` to verify/delete a known id list directly |
+
+Important distinctions:
+- **Pinning a chat does NOT protect it** from pruning — use `--keep="exact title"`.
+- Chats are pruned by **project attachment**; code sessions are pruned by **archive state**.
 
 ## Setup (one-time login — the ONLY interactive step)
 
