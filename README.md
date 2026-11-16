@@ -1,7 +1,10 @@
 # claude-prune
 
-Recurring privacy cleanup for a **claude.ai consumer account**. Drives the site's own
-backend API through a dedicated, headless Chrome profile. No npm dependencies, Node ≥ 22.
+Recurring privacy cleanup for a **claude.ai consumer account** plus the local agent
+session stores on your machine (**OpenCode**, **Copilot CLI**). Cloud targets are driven
+through claude.ai's own API via a dedicated, headless Chrome profile; local stores are
+pruned directly (no browser). No npm dependencies, Node ≥ 22 (`--opencode` needs ≥ 22.13
+for `node:sqlite`).
 
 **Repo:** <https://github.com/alexmohr/claude-prune>
 
@@ -16,8 +19,10 @@ backend API through a dedicated, headless Chrome profile. No npm dependencies, N
 | Target | Rule |
 |---|---|
 | Web chats | every chat **not attached to a project** is deleted — regardless of whether it is normal, **archived, or pinned/starred** (project chats are never in scope; add `--keep="name"` for exceptions). Pinned chats live in a separate UI/API grouping, so they are enumerated from three sources (sidebar, archived, starred) and merged |
-| Claude Code sessions (`/code`) | every **archived** session is deleted; active sessions are never touched |
+| Claude Code sessions (`/code`) | every **archived** session is deleted; active sessions are never touched. `--sessions-older-than=N` additionally protects archived sessions last updated less than N days ago |
 | Routines/triggers | session-bound one-shots cascade-delete with their sessions automatically; optionally pass `--ids=<ids.json>` to verify/delete a known id list directly |
+| OpenCode local store (`--opencode`) | sessions in `~/.local/share/opencode/opencode.db` (legacy + `session_v2` tables) whose `time_updated` is ≥ `--opencode-older-than=N` days ago (default 10) are deleted with all their messages/parts/todos/blobs and `storage/session_diff` files; descendant sessions cascade; **the session running the prune (and its whole lineage) is never touched**, and sessions updated < N days ago (which covers live ones) are protected. `--opencode-vacuum` reclaims DB file space afterwards |
+| Copilot CLI local store (`--copilot`) | sessions in `~/.copilot/session-store.db` older than `--copilot-older-than=N` days (default 10), with their turns/checkpoints/files/refs/trajectory/search-index rows, plus `session-state/<id>/` dirs, plus orphaned (no-DB-row) `session-state/` dirs older than N days, plus their metadata-cache entries. Hidden dot-dirs (`.session-operation-locks`) are never touched. `--copilot-vscode` additionally deletes Copilot Chat `chatSessions/*.json` files older than N days in VS Code `workspaceStorage` |
 
 Important distinctions:
 - **Pinning a chat does NOT protect it** from pruning — use `--keep="exact title"`.
@@ -43,7 +48,16 @@ while the tool runs (one Chrome per profile dir).
 ./claude-prune --yes --no-chats      # sessions only
 ./claude-prune --yes --no-sessions   # chats only
 ./claude-prune --yes --ids=routines_export.json   # trigger ids: ["id",...] or [{id,name},...]
+./claude-prune --headful --yes --sessions-older-than=10   # only archived code sessions last updated >= 10 days ago, run in a visible window
+./claude-prune --opencode --no-chats --no-sessions        # dry-run the LOCAL OpenCode store only (no browser at all)
+./claude-prune --opencode --no-chats --no-sessions --yes --opencode-older-than=10 --opencode-vacuum
+./claude-prune --copilot --copilot-vscode --no-chats --no-sessions   # dry-run the LOCAL Copilot CLI + VS Code chat stores
 ```
+
+`--headful` runs the whole flow with a visible Chrome window. Use it if dry-runs keep
+exiting `NOT LOGGED IN (403)` despite a fresh `--visible` login — that means Cloudflare
+is bot-blocking the headless mode for your account (the window flashes briefly and
+closes itself).
 
 Convert an Anthropic data export's routines file to the `--ids` format:
 
@@ -75,6 +89,9 @@ Claude sessions last weeks to months. On expiry the tool exits `2` with:
 | `PRUNE_CHROME` | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` | Chrome binary |
 | `PRUNE_NODE` | `node` | node binary (must be ≥ 22) |
 | `PRUNE_LOG_DIR` | `./logs` | report output dir |
+| `PRUNE_OPENCODE_DB` | `$XDG_DATA_HOME/opencode/opencode.db` (else `~/.local/share/opencode/opencode.db`) | OpenCode SQLite database for `--opencode` |
+| `PRUNE_COPILOT_DB` | `~/.copilot/session-store.db` | Copilot CLI SQLite database for `--copilot` (`session-state/` is taken from its dir) |
+| `PRUNE_VSCODE_WS` | `~/Library/Application Support/Code/User/workspaceStorage` | VS Code workspaceStorage scanned by `--copilot-vscode` |
 
 ## Exit codes
 
