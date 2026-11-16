@@ -41,6 +41,16 @@ no official Anthropic API for consumer chat data.
 7. **Login expiry handling:** detect via failed `/api/organizations` and exit 2 with
    the `--visible` instruction. Never attempt to automate the login itself
    (credentials, captchas, MFA).
+8. **OpenCode store (`--opencode`):** the session running the prune (`$OPENCODE_SESSION_ID`)
+   plus its ancestor/descendant lineage are NEVER delete targets. Only sessions whose
+   `time_updated` is older than `--opencode-older-than=N` days qualify (this also protects
+   live sessions). Deletes run in short per-chunk transactions so a live OpenCode server
+   is not starved; `VACUUM` only when `--opencode-vacuum` is passed. Needs Node ≥ 22.13
+   for `node:sqlite`.
+9. **Copilot store (`--copilot`):** only `session-state/` entries backed by a target DB row
+   or orphaned AND older than the cutoff are deleted; hidden dot-dirs there
+   (`.session-operation-locks`) are NEVER touched. VS Code Copilot Chat files are only in
+   scope when `--copilot-vscode` is explicitly passed.
 
 ## API notes (learned empirically, keep current)
 
@@ -64,6 +74,24 @@ no official Anthropic API for consumer chat data.
 - A "Channel Root" agent (`/v1/code/agents`) CANNOT be deleted (`cannot_delete_root_agent`)
   — do not add agent deletion.
 - 429/5xx: retry once after ≥ 2s; keep pacing ≥ 250ms between deletes.
+- Cloudflare may bot-block headless Chrome for an account (403 "Just a moment..." HTML
+  on `/api/organizations` even after a fresh `--visible` login) — use `--headful`.
+- OpenCode local store (empirically, this install): SQLite at
+  `~/.local/share/opencode/opencode.db`, WAL mode. Live tables: `session_v2` (children:
+  `session_message`, `session_part`, `session_inbox`, `session_share`) + legacy `session`
+  (children: `message`, `part`, `todo`). Other session-keyed tables WITHOUT reliable FK
+  cascade: `blob_ref`, `instruction_entry`, `instruction_state`, `schedule`, `job`
+  (`session_id` + `child_session_id`) — delete explicitly. Per-session diffs live in
+  `storage/session_diff/<ses_….json>`. `time_updated` is epoch ms. All `session_id`
+  columns are indexed.
+- Copilot CLI store (empirically, this install): SQLite at `~/.copilot/session-store.db`,
+  WAL mode. Table `sessions` (id=uuid, `updated_at` ISO-8601 string) + children
+  `turns`, `checkpoints`, `session_files`, `session_refs`, `forge_trajectory_events`,
+  FTS5 `search_index` (session_id column) — NO ON DELETE CASCADE, delete explicitly.
+  Per-session state on disk in `~/.copilot/session-state/<uuid>/` (often orphaned when the
+  DB row is already gone; `~/.copilot/vscode.session.metadata.cache.json` caches per-id
+  metadata; `.session-operation-locks/` is runtime-internal). VS Code Copilot Chat
+  histories: `workspaceStorage/<hash>/chatSessions/*.json`.
 
 ## Conventions
 
