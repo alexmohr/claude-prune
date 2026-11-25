@@ -34,8 +34,8 @@ const CHROME = process.env.PRUNE_CHROME || '/Applications/Google Chrome.app/Cont
 const LOG_DIR = process.env.PRUNE_LOG_DIR || path.join(path.dirname(new URL(import.meta.url).pathname), 'logs');
 const argv = process.argv.slice(2);
 const YES = argv.includes('--yes');
-const VISIBLE = argv.includes('--visible');
-const HEADFUL = argv.includes('--headful'); // run the whole prune in a visible window (Cloudflare blocks headless on some accounts)
+let VISIBLE = argv.includes('--visible');
+let HEADFUL = argv.includes('--headful'); // run the whole prune in a visible window (Cloudflare blocks headless on some accounts)
 const SKIP_CHATS = argv.includes('--no-chats');
 const SKIP_SESSIONS = argv.includes('--no-sessions');
 const KEEP = (argv.find(a => a.startsWith('--keep=')) || '').replace(/^--keep=/, '').split(',').map(s => s.trim()).filter(Boolean);
@@ -69,6 +69,11 @@ async function ensureChrome() {
     `--user-data-dir=${PROFILE}`,
     `--remote-debugging-port=${PORT}`,
     '--no-first-run', '--no-default-browser-check', '--disable-gpu',
+    // Cloudflare binds cf_clearance to the user-agent: headless mode's default UA says
+    // "HeadlessChrome", so a clearance minted by a --visible/--headful login is instantly
+    // invalid for later headless runs (403 even though the profile IS logged in). Force one
+    // uniform UA for every mode; keep the version in sync with the installed Chrome.
+    '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.8127.89 Safari/537.36',
     ...(VISIBLE || HEADFUL ? [] : ['--headless=new']),
     'https://claude.ai/new',
   ], { detached: true, stdio: 'ignore' });
