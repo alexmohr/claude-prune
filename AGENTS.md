@@ -40,7 +40,10 @@ no official Anthropic API for consumer chat data.
    of that profile; do not kill arbitrary Chrome processes.
 7. **Login expiry handling:** detect via failed `/api/organizations` and exit 2 with
    the `--visible` instruction. Never attempt to automate the login itself
-   (credentials, captchas, MFA).
+   (credentials, captchas, MFA). `--visible` continues the run in the SAME browser
+   after login — never make the user log in and then start a second Chrome run (that
+   pattern lost a fresh session to Cloudflare once). If a headless dry-run 403s right
+   after a fresh login, that is a headless bot-block: use `--headful`, not a re-login.
 8. **OpenCode store (`--opencode`):** the session running the prune (`$OPENCODE_SESSION_ID`)
    plus its ancestor/descendant lineage are NEVER delete targets. Only sessions whose
    `time_updated` is older than `--opencode-older-than=N` days qualify (this also protects
@@ -80,8 +83,11 @@ no official Anthropic API for consumer chat data.
   `~/.local/share/opencode/opencode.db`, WAL mode. Live tables: `session_v2` (children:
   `session_message`, `session_part`, `session_inbox`, `session_share`) + legacy `session`
   (children: `message`, `part`, `todo`). Other session-keyed tables WITHOUT reliable FK
-  cascade: `blob_ref`, `instruction_entry`, `instruction_state`, `schedule`, `job`
-  (`session_id` + `child_session_id`) — delete explicitly. Per-session diffs live in
+  cascade: `blob_ref`, `instruction_entry`, `instruction_state`, `automation`, `job`
+  (`session_id` + `child_session_id`) — but the table set drifts between OpenCode
+  versions (`schedule` was renamed `automation`), so the prune discovers session-keyed
+  tables/columns from `sqlite_master` + `table_info` instead of hard-coding them.
+  Per-session diffs live in
   `storage/session_diff/<ses_….json>`. `time_updated` is epoch ms. All `session_id`
   columns are indexed.
 - Copilot CLI store (empirically, this install): SQLite at `~/.copilot/session-store.db`,

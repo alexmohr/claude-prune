@@ -32,8 +32,13 @@ Important distinctions:
 
 ```sh
 cd path/to/claude-prune        # your checkout location
-./claude-prune --visible       # Chrome window opens -> log in to claude.ai -> tool confirms, closes
+./claude-prune --visible       # Chrome window opens -> log in -> the SAME run continues with the cleanup
 ```
+
+`--visible` logs in once and then keeps using that same Chrome window for the rest of the
+run (dry-run or `--yes`) — never log in twice, and never re-run after a successful
+`--visible` login. If a plain dry-run says `NOT LOGGED IN` shortly after a login, Cloudflare
+is blocking headless mode: use `--headful`, not another login.
 
 The session cookie lives in a private Chrome profile at `~/.claude-prune-profile`
 (separate from your everyday Chrome). Never open that profile folder in another Chrome
