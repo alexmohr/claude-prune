@@ -237,13 +237,13 @@ async function opencodePrune() {
     }
 
     const ids = [...targets.keys()];
-    // explicit cleanup of every session-keyed table (FK cascades are per-connection in SQLite — don't rely on them)
-    const CHILD = [
-      ['session_message', 'session_id'], ['session_part', 'session_id'], ['session_inbox', 'session_id'], ['session_share', 'session_id'],
-      ['message', 'session_id'], ['part', 'session_id'], ['todo', 'session_id'],
-      ['blob_ref', 'session_id'], ['instruction_entry', 'session_id'], ['instruction_state', 'session_id'],
-      ['schedule', 'session_id'], ['job', 'session_id'], ['job', 'child_session_id'],
-    ];
+    // explicit cleanup of every session-keyed table (FK cascades are per-connection in SQLite — don't rely on them).
+    // Discover the tables/columns from the live schema: OpenCode renames tables between versions
+    // (e.g. `schedule` -> `automation`), so a hard-coded list breaks.
+    const CHILD = [];
+    for (const t of db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('session','session_v2')").all())
+      for (const c of db.prepare(`PRAGMA table_info('${t.name}')`).all())
+        if (c.name === 'session_id' || c.name === 'child_session_id') CHILD.push([t.name, c.name]);
     const t0 = Date.now();
     for (let i = 0; i < ids.length; i += 400) {
       // one transaction per chunk: keeps the write lock short so a running OpenCode server is not starved
