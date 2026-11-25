@@ -88,6 +88,22 @@ async function flushBrowserState() {
   try { await cdp('Storage.setCookies', { cookies: await cdp('Storage.getCookies') }); } catch {}
   try { await cdp('Browser.close'); } catch {}
 }
+// claude.ai's login cookie is SESSION-ONLY: Chrome's on-disk profile never keeps it across
+// a close, so every fresh launch looked logged out. Vault the cookies locally in the
+// profile dir (they never leave it) and re-inject them at the start of each run.
+const COOKIE_VAULT = path.join(PROFILE, 'cookie-vault.json');
+async function saveCookieVault() {
+  try {
+    const { cookies } = await cdp('Storage.getCookies');
+    if (cookies?.length) fs.writeFileSync(COOKIE_VAULT, JSON.stringify(cookies, null, 1), { mode: 0o600 });
+  } catch {}
+}
+async function restoreCookieVault() {
+  try {
+    const cookies = JSON.parse(fs.readFileSync(COOKIE_VAULT, 'utf8'));
+    if (cookies.length) await cdp('Storage.setCookies', { cookies });
+  } catch {}
+}
 async function killChrome() {
   const pidFile = path.join(PROFILE, '.claude-prune.pid');
   if (!fs.existsSync(pidFile)) return;
@@ -396,20 +412,37 @@ async function main() {
 
   let sid = null, org = null;
   if (!SKIP_CHATS || !SKIP_SESSIONS || IDS_FILE) {
-    const ver = await ensureChrome();
-    await connectCdp(ver.webSocketDebuggerUrl);
-    sid = await openClaudeTab();
+    const setup = async () => {
+      const ver = await ensureChrome();
+      await connectCdp(ver.webSocketDebuggerUrl);
+      await restoreCookieVault();
+      return openClaudeTab();
+    };
+    sid = await setup();
 
     let login = await loginCheck(sid);
-    if (!login.ok && (VISIBLE || HEADFUL)) {
+    let headfulRetried = false;
+    if (!login.ok && !VISIBLE && !HEADFUL) {
+      // Cloudflare can bot-block headless for an account even though the profile holds a
+      // valid login. Retry once with a visible window (flashes briefly) — NOT a re-login
+      // request; only if that also fails is the session actually gone.
+      log('login check failed headless (' + (login.status || login.error) + ') — retrying headful...');
+      await flushBrowserState(); await killChrome(); await sleep(1000);
+      HEADFUL = true;
+      headfulRetried = true;
+      sid = await setup();
+      login = await loginCheck(sid);
+    }
+    if (!login.ok && !headfulRetried && (VISIBLE || HEADFUL)) {
       log('Chrome window is open. Log in to claude.ai there. Waiting up to 10 minutes...');
-      for (let i = 0; i < 200 && !login.ok; i++) { await sleep(3000); login = await loginCheck(sid); }
+      for (let i = 0; i < 200 && !login.ok; i++) { await sleep(3000); login = await loginCheck(sid); await saveCookieVault(); }
     }
     if (!login.ok) {
       log('NOT LOGGED IN (' + (login.status || login.error) + ') — run:  ./claude-prune --visible   and log in once.');
       await flushBrowserState(); await killChrome(); process.exit(exitCode || 2);
     }
     org = login.org;
+    await saveCookieVault(); // keep the vault fresh (incl. cf_clearance) for the next run
     if (VISIBLE) log('Login OK. Continuing this run in the same Chrome window (no second login needed).');
   }
 
