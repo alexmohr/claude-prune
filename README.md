@@ -36,13 +36,16 @@ cd path/to/claude-prune        # your checkout location
 ```
 
 `--visible` logs in once and then keeps using that same Chrome window for the rest of the
-run (dry-run or `--yes`) — never log in twice, and never re-run after a successful
-`--visible` login. If a plain dry-run says `NOT LOGGED IN` shortly after a login, Cloudflare
-is blocking headless mode: use `--headful`, not another login.
+run (dry-run or `--yes`). Your login is kept in a local cookie vault
+(`~/.claude-prune-profile/cookie-vault.json`, mode 600, never leaves the profile) because
+claude.ai's session cookie is session-only and Chrome would otherwise discard it at every
+close — so later runs work fully headless with no login at all. If a headless run gets a
+Cloudflare bot-block, the tool automatically retries once with a brief visible window;
+you only ever need `--visible` again when the vault itself has expired.
 
-The session cookie lives in a private Chrome profile at `~/.claude-prune-profile`
-(separate from your everyday Chrome). Never open that profile folder in another Chrome
-while the tool runs (one Chrome per profile dir).
+The Chrome profile lives at `~/.claude-prune-profile` (separate from your everyday Chrome).
+Never open that profile folder in another Chrome while the tool runs (one Chrome per
+profile dir).
 
 ## Usage
 
@@ -59,10 +62,9 @@ while the tool runs (one Chrome per profile dir).
 ./claude-prune --copilot --copilot-vscode --no-chats --no-sessions   # dry-run the LOCAL Copilot CLI + VS Code chat stores
 ```
 
-`--headful` runs the whole flow with a visible Chrome window. Use it if dry-runs keep
-exiting `NOT LOGGED IN (403)` despite a fresh `--visible` login — that means Cloudflare
-is bot-blocking the headless mode for your account (the window flashes briefly and
-closes itself).
+`--headful` runs the whole flow with a visible Chrome window. The tool already falls back
+to this automatically when a headless login check hits a Cloudflare bot-block, so use the
+flag only to force a visible run (e.g. for debugging).
 
 Convert an Anthropic data export's routines file to the `--ids` format:
 

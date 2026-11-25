@@ -43,7 +43,14 @@ no official Anthropic API for consumer chat data.
    (credentials, captchas, MFA). `--visible` continues the run in the SAME browser
    after login — never make the user log in and then start a second Chrome run (that
    pattern lost a fresh session to Cloudflare once). If a headless dry-run 403s right
-   after a fresh login, that is a headless bot-block: use `--headful`, not a re-login.
+   after a fresh login, that is a headless bot-block: the tool retries once with a
+   brief headful window automatically before declaring the session gone.
+   claude.ai's login cookie is SESSION-ONLY (Chrome discards it on close in every mode),
+   which is why every fresh launch used to demand a re-login. The tool vaults cookies to
+   `cookie-vault.json` inside the profile dir (mode 600) and re-injects them at start —
+   do not rely on generic Chrome cookie persistence, it cannot keep session-only cookies.
+   If a headful run still reports NOT LOGGED IN, only then is a real `--visible` re-login
+   needed (exactly one; the vault refreshes itself).
 8. **OpenCode store (`--opencode`):** the session running the prune (`$OPENCODE_SESSION_ID`)
    plus its ancestor/descendant lineage are NEVER delete targets. Only sessions whose
    `time_updated` is older than `--opencode-older-than=N` days qualify (this also protects
@@ -77,8 +84,15 @@ no official Anthropic API for consumer chat data.
 - A "Channel Root" agent (`/v1/code/agents`) CANNOT be deleted (`cannot_delete_root_agent`)
   — do not add agent deletion.
 - 429/5xx: retry once after ≥ 2s; keep pacing ≥ 250ms between deletes.
-- Cloudflare may bot-block headless Chrome for an account (403 "Just a moment..." HTML
-  on `/api/organizations` even after a fresh `--visible` login) — use `--headful`.
+- Cloudflare may bot-block headless Chrome (403 "Just a moment..." HTML on
+  `/api/organizations`). Two empirically confirmed triggers, both handled: (a) UA —
+  cf_clearance is bound to the user-agent and headless mode's UA says "HeadlessChrome",
+  so the tool pins one uniform `--user-agent` for every mode; (b) residual bot-blocking —
+  the login check automatically retries once with a brief headful window.
+- claude.ai's login cookie is session-only: Chrome discards it on every close regardless
+  of mode, so on-disk profile persistence cannot keep the login. The tool saves cookies
+  to `cookie-vault.json` in the profile dir (mode 600) after login and re-injects them
+  via CDP `Storage.setCookies` at each run start.
 - OpenCode local store (empirically, this install): SQLite at
   `~/.local/share/opencode/opencode.db`, WAL mode. Live tables: `session_v2` (children:
   `session_message`, `session_part`, `session_inbox`, `session_share`) + legacy `session`
