@@ -77,6 +77,12 @@ async function ensureChrome() {
   for (let i = 0; i < 60; i++) { try { return await cdpVersion(); } catch { await sleep(500); } }
   throw new Error('Chrome did not expose CDP on port ' + PORT + '. Is the profile open in another Chrome? (one Chrome per profile dir)');
 }
+async function flushBrowserState() {
+  // hand cookies back to Chrome and close it GRACEFULLY over CDP: a raw SIGTERM can drop
+  // a just-acquired session cookie before it is persisted to the profile (lost login)
+  try { await cdp('Storage.setCookies', { cookies: await cdp('Storage.getCookies') }); } catch {}
+  try { await cdp('Browser.close'); } catch {}
+}
 async function killChrome() {
   const pidFile = path.join(PROFILE, '.claude-prune.pid');
   if (!fs.existsSync(pidFile)) return;
@@ -396,10 +402,10 @@ async function main() {
     }
     if (!login.ok) {
       log('NOT LOGGED IN (' + (login.status || login.error) + ') — run:  ./claude-prune --visible   and log in once.');
-      await killChrome(); process.exit(exitCode || 2);
+      await flushBrowserState(); await killChrome(); process.exit(exitCode || 2);
     }
     org = login.org;
-    if (VISIBLE) { log('Login OK. You can close the Chrome window now (or it will be closed for you).'); await killChrome(); process.exit(exitCode); }
+    if (VISIBLE) log('Login OK. Continuing this run in the same Chrome window (no second login needed).');
   }
 
   // 1) chats
@@ -483,6 +489,7 @@ async function main() {
     }
   }
 
+  await flushBrowserState();
   await killChrome();
   log('DONE log=' + logPath);
   process.exit(exitCode);
